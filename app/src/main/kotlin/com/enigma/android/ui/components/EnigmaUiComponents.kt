@@ -64,6 +64,8 @@ import androidx.compose.ui.unit.sp
 import com.enigma.android.ui.theme.BrassAccent
 import com.enigma.android.ui.theme.LampGold
 import com.enigma.android.viewmodel.EnigmaUiState
+import com.enigma.android.viewmodel.EnigmaViewModel
+import com.enigma.android.viewmodel.MachineTab
 import com.enigma.engine.catalog.ReflectorCatalog
 import com.enigma.engine.catalog.RotorCatalog
 import com.enigma.engine.model.Alphabet
@@ -118,6 +120,28 @@ fun TopMenuBar(
                 }
             }
 
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Live rotor window readout
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "WINDOW ${uiState.windowNotation}",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    text = if (uiState.isAtStartPositions) "At key start position" else "Wheels advanced",
+                    fontSize = 11.sp,
+                    color = Color.Gray
+                )
+            }
+
             Spacer(modifier = Modifier.height(8.dp))
 
             // Preset Dropdown Selector
@@ -164,20 +188,33 @@ fun RotorControlPanel(
     onPositionChanged: (Int, Char) -> Unit,
     onGreekPositionChanged: (Char) -> Unit,
     onRingChanged: (Int, Int) -> Unit,
-    onGreekRingChanged: (Int) -> Unit
+    onGreekRingChanged: (Int) -> Unit,
+    onResetPositions: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                "ROTOR & REFLECTOR CONFIGURATION",
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                color = BrassAccent,
-                fontFamily = FontFamily.Monospace
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "ROTOR & REFLECTOR CONFIGURATION",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = BrassAccent,
+                    fontFamily = FontFamily.Monospace
+                )
+                OutlinedButton(
+                    onClick = onResetPositions,
+                    enabled = uiState.canReset
+                ) {
+                    Text("Reset", fontSize = 11.sp)
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
 
             // Reflector selection
@@ -710,9 +747,8 @@ fun SignalPathTraceView(uiState: EnigmaUiState) {
 }
 
 @Composable
-fun MainScreen(viewModel: com.enigma.android.viewmodel.EnigmaViewModel) {
+fun MainScreen(viewModel: EnigmaViewModel) {
     val uiState by viewModel.uiState.collectAsState()
-    var selectedTab by remember { mutableStateOf(0) }
 
     Column(
         modifier = Modifier
@@ -722,54 +758,212 @@ fun MainScreen(viewModel: com.enigma.android.viewmodel.EnigmaViewModel) {
         TopMenuBar(
             uiState = uiState,
             onModelSelected = { viewModel.selectModel(it) },
-            onPresetSelected = { presetId ->
-                val preset = PresetCatalog.getById(presetId)
-                viewModel.applyPreset(preset)
-            }
+            onPresetSelected = { presetId -> viewModel.applyPreset(PresetCatalog.getById(presetId)) }
         )
 
-        TabRow(selectedTabIndex = selectedTab) {
-            Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }) {
-                Text("Enigma Machine", modifier = Modifier.padding(12.dp))
-            }
-            Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }) {
-                Text("Settings & Plugboard", modifier = Modifier.padding(12.dp))
+        TabRow(selectedTabIndex = uiState.activeTab.ordinal) {
+            MachineTab.values().forEach { tab ->
+                Tab(
+                    selected = uiState.activeTab == tab,
+                    onClick = { viewModel.selectTab(tab) },
+                    text = {
+                        Text(
+                            text = tabLabel(tab),
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp)
+                        )
+                    }
+                )
             }
         }
 
-        if (selectedTab == 0) {
-            // Machine View: Lampboard, Keyboard, Output Tape & Signal Path
-            LampboardAndKeyboardPanel(
-                litLamp = uiState.litLamp,
-                onKeyPress = { viewModel.onKeyPress(it) },
-                onKeyRelease = { viewModel.onKeyRelease() }
+        when (uiState.activeTab) {
+            MachineTab.MACHINE -> {
+                // Machine View: Lampboard, Keyboard, Output Tape & Signal Path
+                LampboardAndKeyboardPanel(
+                    litLamp = uiState.litLamp,
+                    onKeyPress = { viewModel.onKeyPress(it) },
+                    onKeyRelease = { viewModel.onKeyRelease() }
+                )
+
+                OutputTapePanel(
+                    text = uiState.outputTapeText,
+                    onClear = { viewModel.clearTape() }
+                )
+
+                SignalPathTraceView(uiState = uiState)
+            }
+
+            MachineTab.SETTINGS -> {
+                // Configuration View: Rotors, Reflectors, Plugboard
+                RotorControlPanel(
+                    uiState = uiState,
+                    onReflectorChanged = { viewModel.setReflector(it) },
+                    onRotorSpecChanged = { index, spec -> viewModel.setRotorSpec(index, spec) },
+                    onGreekSpecChanged = { viewModel.setGreekRotorSpec(it) },
+                    onPositionChanged = { index, position -> viewModel.setRotorPosition(index, position) },
+                    onGreekPositionChanged = { viewModel.setGreekPosition(it) },
+                    onRingChanged = { index, ring -> viewModel.setRingSetting(index, ring) },
+                    onGreekRingChanged = { viewModel.setGreekRing(it) },
+                    onResetPositions = { viewModel.resetPositions() }
+                )
+
+                PlugboardPanel(
+                    pairs = uiState.plugboardPairs,
+                    errorMessage = uiState.plugboardErrorMessage,
+                    onAddPair = { char1, char2 -> viewModel.addPlugboardPair(char1, char2) },
+                    onRemovePair = { viewModel.removePlugboardPair(it) },
+                    onClearAll = { viewModel.clearPlugboard() }
+                )
+            }
+
+            MachineTab.MESSAGE -> {
+                MessageConsolePanel(
+                    uiState = uiState,
+                    onInputChanged = { viewModel.setMessageInput(it) },
+                    onProcess = { viewModel.processMessage() },
+                    onClear = { viewModel.clearMessage() },
+                    onResetPositions = { viewModel.resetPositions() }
+                )
+            }
+        }
+    }
+}
+
+private fun tabLabel(tab: MachineTab): String = when (tab) {
+    MachineTab.MACHINE -> "Machine"
+    MachineTab.SETTINGS -> "Settings"
+    MachineTab.MESSAGE -> "Message"
+}
+
+/**
+ * Bulk entry: type or paste a whole message and run it through the machine in one go.
+ * The rotors advance while the text is processed, exactly as a real operator would type it.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun MessageConsolePanel(
+    uiState: EnigmaUiState,
+    onInputChanged: (String) -> Unit,
+    onProcess: () -> Unit,
+    onClear: () -> Unit,
+    onResetPositions: () -> Unit
+) {
+    val clipboardManager = LocalClipboardManager.current
+    val formattedOutput = Alphabet.groupInFives(uiState.messageOutput)
+
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                "MESSAGE CONSOLE",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = BrassAccent,
+                fontFamily = FontFamily.Monospace
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Enigma is reciprocal, so processing twice restores the original text. " +
+                    "Spaces and punctuation are ignored; the wheels advance for every letter.",
+                fontSize = 11.sp,
+                color = Color.Gray
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = uiState.messageInput,
+                onValueChange = onInputChanged,
+                label = { Text("Message (A-Z)", fontSize = 11.sp) },
+                modifier = Modifier.fillMaxWidth().height(120.dp)
             )
 
-            OutputTapePanel(
-                text = uiState.outputTapeText,
-                onClear = { viewModel.clearTape() }
-            )
+            if (uiState.messageErrorMessage != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = uiState.messageErrorMessage,
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 11.sp
+                )
+            }
 
-            SignalPathTraceView(uiState = uiState)
-        } else {
-            // Configuration View: Rotors, Reflectors, Plugboard
-            RotorControlPanel(
-                uiState = uiState,
-                onReflectorChanged = { viewModel.setReflector(it) },
-                onRotorSpecChanged = { idx, spec -> viewModel.setRotorSpec(idx, spec) },
-                onGreekSpecChanged = { viewModel.setGreekRotorSpec(it) },
-                onPositionChanged = { idx, pos -> viewModel.setRotorPosition(idx, pos) },
-                onGreekPositionChanged = { viewModel.setGreekPosition(it) },
-                onRingChanged = { idx, ring -> viewModel.setRingSetting(idx, ring) },
-                onGreekRingChanged = { viewModel.setGreekRing(it) }
-            )
+            Spacer(modifier = Modifier.height(8.dp))
 
-            PlugboardPanel(
-                pairs = uiState.plugboardPairs,
-                errorMessage = uiState.plugboardErrorMessage,
-                onAddPair = { c1, c2 -> viewModel.addPlugboardPair(c1, c2) },
-                onRemovePair = { viewModel.removePlugboardPair(it) },
-                onClearAll = { viewModel.clearPlugboard() }
+            FlowRow(
+                horizontalArrangement = Arrangement.Start,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Button(
+                    onClick = onProcess,
+                    modifier = Modifier.padding(end = 8.dp, bottom = 4.dp)
+                ) {
+                    Text("PROCESS")
+                }
+                OutlinedButton(
+                    onClick = onClear,
+                    modifier = Modifier.padding(end = 8.dp, bottom = 4.dp)
+                ) {
+                    Text("CLEAR TEXT")
+                }
+                OutlinedButton(
+                    onClick = onResetPositions,
+                    enabled = uiState.canReset,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                ) {
+                    Text("RESET ROTORS")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "RESULT",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = BrassAccent,
+                    fontFamily = FontFamily.Monospace
+                )
+                IconButton(
+                    onClick = { clipboardManager.setText(AnnotatedString(formattedOutput)) },
+                    enabled = uiState.messageOutput.isNotEmpty()
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy Result")
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFFFDD0), RoundedCornerShape(4.dp))
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = if (formattedOutput.isEmpty()) {
+                        "THE PROCESSED MESSAGE WILL APPEAR HERE..."
+                    } else {
+                        formattedOutput
+                    },
+                    color = if (formattedOutput.isEmpty()) Color.LightGray else Color.Black,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 15.sp,
+                    letterSpacing = 1.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Window ${uiState.windowNotation}  |  ${uiState.messageOutput.length} letters",
+                fontSize = 11.sp,
+                color = Color.Gray,
+                fontFamily = FontFamily.Monospace
             )
         }
     }

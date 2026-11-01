@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Enigma" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+        Vintage dark shell. Compose paints the real UI; this theme only controls the window
+        before the first frame, which is why it matches the Compose background colour.
+    -->
+    <style name="Theme.Enigma" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/enigma_window_background</item>
+        <item name="android:statusBarColor">@color/enigma_window_background</item>
+        <item name="android:navigationBarColor">@color/enigma_window_background</item>
+    </style>
 </resources>
