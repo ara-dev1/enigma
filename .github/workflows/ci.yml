@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [ main-867197767785461700 ]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    name: Engine tests (pure Kotlin)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v3
+      - name: Run engine unit tests
+        run: ./gradlew :engine:test --console=plain --stacktrace
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-test-report
+          path: engine/build/reports/tests/
+          if-no-files-found: ignore
+
+  android:
+    name: Android app build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v3
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --console=plain --stacktrace
+      - name: Run app unit tests
+        run: ./gradlew :app:testDebugUnitTest --console=plain --stacktrace
+      - name: Upload debug APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enigma-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
